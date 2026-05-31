@@ -1,0 +1,28 @@
+[server]
+id = "local-dev"
+game = "demo"
+version = "dev"
+bind_ip = "0.0.0.0"
+public_ip = "127.0.0.1"
+port = 7777
+max_players = 64
+max_rooms = 4
+region = "local"
+
+[nats]
+url = "nats://nats:4222"
+namespace = "lightyear_local"
+
+[nats.ttl]
+server_readiness_secs = 30
+server_capacity_secs = 30
+assignments_secs = 60
+assignments_prepared_secs = 60
+active_connections_secs = 30
+lifecycle_work_secs = 600
+
+[demo]
+tick_hz = 20.0
+assignment_poll_ms = 250
+capacity_publish_ticks = 20
+auto_connect_assigned_clients = true

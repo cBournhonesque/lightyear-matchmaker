@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/lightyear_matchmaker",
+  "crates/lightyear_matchmaker_bevy_client",
+  "crates/lightyear_matchmaker_bevy_server",
+  "crates/lightyear_matchmaker_core",
+  "crates/lightyear_matchmaker_lightyear",
+  "crates/lightyear_matchmaker_nats",
+  "crates/lightyear_matchmaker_provider_edgegap",
+  "crates/lightyear_matchmaker_provider_static",
+  "crates/lightyear_matchmaker_server",
+  "examples/bevy_local_static/server",
+]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+repository = "https://github.com/cBournhonesque/lightyear-matchmaker"
+
+[workspace.dependencies]
+lightyear_matchmaker_core = { path = "crates/lightyear_matchmaker_core" }
+lightyear_matchmaker_bevy_client = { path = "crates/lightyear_matchmaker_bevy_client" }
+lightyear_matchmaker_bevy_server = { path = "crates/lightyear_matchmaker_bevy_server" }
+lightyear_matchmaker_lightyear = { path = "crates/lightyear_matchmaker_lightyear" }
+lightyear_matchmaker_nats = { path = "crates/lightyear_matchmaker_nats" }
+lightyear_matchmaker_provider_edgegap = { path = "crates/lightyear_matchmaker_provider_edgegap" }
+lightyear_matchmaker_provider_static = { path = "crates/lightyear_matchmaker_provider_static" }
+lightyear_matchmaker_server = { path = "crates/lightyear_matchmaker_server" }
+
+lightyear_connection = { path = "../lightyear/lightyear_connection", default-features = false }
+lightyear_core = { path = "../lightyear/lightyear_core", default-features = false }
+lightyear_netcode = { path = "../lightyear/lightyear_netcode", default-features = false, features = ["std"] }
+
+anyhow = "1.0"
+async-nats = "0.36"
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+bevy_app = { version = "0.18", default-features = false, features = ["std"] }
+bevy_ecs = { version = "0.18", default-features = false, features = ["std"] }
+clap = { version = "4.5", features = ["derive"] }
+futures-util = "0.3"
+rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tokio-tungstenite = "0.29"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1

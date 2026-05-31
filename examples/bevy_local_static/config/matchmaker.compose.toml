@@ -1,0 +1,48 @@
+[server]
+bind = "0.0.0.0:3000"
+
+[game]
+name = "demo"
+version = "dev"
+
+[identity]
+trust_forwarded_for = false
+
+[allocation]
+source = "nats_static"
+require_assignment_prepare = true
+assignment_prepare_timeout_ms = 3000
+assignment_prepare_poll_ms = 25
+
+[nats]
+url = "nats://nats:4222"
+namespace = "lightyear_local"
+
+[nats.ttl]
+server_readiness_secs = 30
+server_capacity_secs = 30
+assignments_secs = 60
+assignments_prepared_secs = 60
+active_connections_secs = 30
+lifecycle_work_secs = 600
+
+[lightyear]
+protocol_id = 0
+# Empty private_key means the all-zero development key.
+# Use a 64-character hex string or 32 comma-separated bytes for a real setup.
+private_key = ""
+client_timeout_secs = 15
+token_expire_secs = 30
+
+# Fallback/static metadata remains useful for no-NATS examples and documentation.
+# With allocation.source = "nats_static", live server_capacity reports are used.
+[[static_provider.servers]]
+id = "local-dev"
+game = "demo"
+version = "dev"
+ready = true
+total_players = 0
+max_players = 64
+max_rooms = 4
+region = "local"
+endpoint = { public_ip = "127.0.0.1", port = 7777 }

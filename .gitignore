@@ -1,0 +1,4 @@
+/target/
+/.env
+examples/docker-compose/.env
+examples/podman/.env

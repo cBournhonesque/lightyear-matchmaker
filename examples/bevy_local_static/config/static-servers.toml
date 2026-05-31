@@ -1,0 +1,10 @@
+[[servers]]
+id = "local-dev"
+game = "demo"
+version = "dev"
+ready = true
+total_players = 0
+max_players = 64
+max_rooms = 4
+region = "local"
+endpoint = { public_ip = "127.0.0.1", port = 7777 }

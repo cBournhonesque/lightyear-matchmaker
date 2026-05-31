@@ -1,0 +1,31 @@
+[package]
+name = "lightyear_matchmaker_bevy_server"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+description = "Bevy game-server plugin contract for Lightyear Matchmaker"
+
+[features]
+default = []
+lightyear-netcode = [
+  "dep:lightyear_connection",
+  "dep:lightyear_core",
+  "dep:lightyear_netcode",
+]
+
+[dependencies]
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+lightyear_connection = { workspace = true, optional = true, features = ["server"] }
+lightyear_core = { workspace = true, optional = true }
+lightyear_matchmaker_core.workspace = true
+lightyear_matchmaker_nats.workspace = true
+lightyear_netcode = { workspace = true, optional = true, features = ["server"] }
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

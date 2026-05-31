@@ -1,0 +1,55 @@
+[server]
+bind = "127.0.0.1:3000"
+
+[game]
+name = "demo"
+version = "dev"
+
+[identity]
+trust_forwarded_for = false
+
+[allocation]
+source = "edgegap"
+# Enable this when the Edgegap-launched game server uses the Bevy server plugin
+# and can reach the configured NATS server.
+require_assignment_prepare = true
+assignment_prepare_timeout_ms = 30000
+assignment_prepare_poll_ms = 100
+
+[nats]
+# This must be reachable by both the matchmaker and the Edgegap deployment.
+url = "nats://127.0.0.1:4222"
+namespace = "lightyear_edgegap"
+
+[nats.ttl]
+server_readiness_secs = 30
+server_capacity_secs = 30
+assignments_secs = 60
+assignments_prepared_secs = 60
+active_connections_secs = 30
+lifecycle_work_secs = 600
+
+[lightyear]
+protocol_id = 0
+# Empty private_key means the all-zero development key.
+# Use a 64-character hex string or 32 comma-separated bytes for a real setup.
+private_key = ""
+client_timeout_secs = 15
+token_expire_secs = 30
+
+[edgegap_provider]
+app = "demo-app"
+version = "dev"
+# Read from the environment by default. Use `api_key = "..."`
+# only for local experiments that never get committed.
+api_key_env = "EDGEGAP_API_KEY"
+base_url = "https://api.edgegap.com"
+# Optional placement controls:
+# region = "North America"
+# country = "Canada"
+# city = "Montreal"
+# deployment_request_id = "existing-deployment-request-id"
+# port_name = "game"
+session_ready_timeout_secs = 120
+session_poll_ms = 500
+release_missing_ok = true

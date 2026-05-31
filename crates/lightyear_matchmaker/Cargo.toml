@@ -1,0 +1,36 @@
+[package]
+name = "lightyear_matchmaker"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+description = "Facade crate for Lightyear Matchmaker"
+
+[features]
+default = ["static-provider", "lightyear-netcode"]
+bevy-client = ["dep:lightyear_matchmaker_bevy_client"]
+bevy-server = ["dep:lightyear_matchmaker_bevy_server"]
+bevy-server-lightyear-netcode = [
+  "bevy-server",
+  "lightyear_matchmaker_bevy_server/lightyear-netcode",
+]
+nats = ["dep:lightyear_matchmaker_nats"]
+provider-edgegap = ["dep:lightyear_matchmaker_provider_edgegap"]
+server = ["dep:lightyear_matchmaker_server"]
+static-provider = ["dep:lightyear_matchmaker_provider_static"]
+lightyear-netcode = ["dep:lightyear_matchmaker_lightyear"]
+
+[dependencies]
+lightyear_matchmaker_core.workspace = true
+lightyear_matchmaker_bevy_client = { workspace = true, optional = true }
+lightyear_matchmaker_bevy_server = { workspace = true, optional = true }
+lightyear_matchmaker_lightyear = { workspace = true, optional = true }
+lightyear_matchmaker_nats = { workspace = true, optional = true }
+lightyear_matchmaker_provider_edgegap = { workspace = true, optional = true }
+lightyear_matchmaker_provider_static = { workspace = true, optional = true }
+lightyear_matchmaker_server = { workspace = true, optional = true }
+
+[lints]
+workspace = true

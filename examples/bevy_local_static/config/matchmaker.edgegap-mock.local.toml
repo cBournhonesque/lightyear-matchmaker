@@ -1,0 +1,49 @@
+[server]
+bind = "127.0.0.1:3000"
+
+[game]
+name = "demo"
+version = "dev"
+
+[identity]
+trust_forwarded_for = false
+
+[allocation]
+source = "edgegap_mock"
+require_assignment_prepare = true
+assignment_prepare_timeout_ms = 3000
+assignment_prepare_poll_ms = 25
+
+[nats]
+url = "nats://127.0.0.1:4222"
+namespace = "lightyear_edgegap_mock"
+
+[nats.ttl]
+server_readiness_secs = 30
+server_capacity_secs = 30
+assignments_secs = 60
+assignments_prepared_secs = 60
+active_connections_secs = 30
+lifecycle_work_secs = 600
+
+[lightyear]
+protocol_id = 0
+private_key = ""
+client_timeout_secs = 15
+token_expire_secs = 30
+
+[edgegap_provider]
+app = "demo-app"
+version = "dev"
+
+[[edgegap_provider.deployments]]
+deployment_id = "deployment-local-dev"
+server_id = "local-dev"
+game = "demo"
+version = "dev"
+ready = true
+current_sessions = 0
+max_sessions = 64
+session_id = "session-local-dev"
+region = "local"
+endpoint = { public_ip = "127.0.0.1", port = 7777 }

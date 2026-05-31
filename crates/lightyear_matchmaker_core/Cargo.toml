@@ -1,0 +1,19 @@
+[package]
+name = "lightyear_matchmaker_core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+description = "Provider-agnostic core types and traits for Lightyear Matchmaker"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

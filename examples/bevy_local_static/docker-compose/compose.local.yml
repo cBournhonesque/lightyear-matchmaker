@@ -1,0 +1,47 @@
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+
+  matchmaker:
+    image: rust:1.88
+    working_dir: /workspace
+    volumes:
+      - ../../..:/workspace
+    command:
+      - cargo
+      - run
+      - -p
+      - lightyear_matchmaker_server
+      - --
+      - --config
+      - ${MATCHMAKER_CONFIG:-examples/bevy_local_static/config/matchmaker.compose.toml}
+    environment:
+      RUST_LOG: lightyear_matchmaker_server=info
+    ports:
+      - "${MATCHMAKER_PORT:-3000}:3000"
+    depends_on:
+      - nats
+
+  game-server:
+    image: rust:1.88
+    working_dir: /workspace
+    volumes:
+      - ../../..:/workspace
+    command:
+      - cargo
+      - run
+      - -p
+      - bevy_local_static_server
+      - --
+      - --config
+      - ${GAME_SERVER_CONFIG:-examples/bevy_local_static/config/game-server.compose.toml}
+    environment:
+      RUST_LOG: bevy_local_static_server=info,lightyear_matchmaker_bevy_server=info
+    ports:
+      - "${GAME_SERVER_PORT:-7777}:7777/udp"
+    depends_on:
+      - nats

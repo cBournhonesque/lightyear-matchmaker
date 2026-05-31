@@ -1,0 +1,19 @@
+[package]
+name = "lightyear_matchmaker_lightyear"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+description = "Lightyear-specific token issuing for Lightyear Matchmaker"
+
+[dependencies]
+base64.workspace = true
+lightyear_netcode.workspace = true
+lightyear_matchmaker_core.workspace = true
+rand.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true
