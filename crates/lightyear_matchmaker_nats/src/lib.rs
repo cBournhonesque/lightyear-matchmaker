@@ -41,6 +41,12 @@ pub struct NatsConfig {
     /// NATS server URL.
     pub url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional username for NATS user/password authentication.
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional password for NATS user/password authentication.
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Optional namespace prefix for subjects and KV buckets.
     pub namespace: Option<String>,
     #[serde(default)]
@@ -52,6 +58,8 @@ impl Default for NatsConfig {
     fn default() -> Self {
         Self {
             url: "nats://127.0.0.1:4222".to_string(),
+            username: None,
+            password: None,
             namespace: None,
             ttl: NatsTtlConfig::default(),
         }
@@ -277,7 +285,12 @@ pub struct NatsCoordinator {
 impl NatsCoordinator {
     /// Connects to NATS and opens or creates the required JetStream KV buckets.
     pub async fn connect(config: NatsConfig) -> Result<Self> {
-        let client = async_nats::connect(config.url)
+        let mut options = async_nats::ConnectOptions::new();
+        if let (Some(username), Some(password)) = (&config.username, &config.password) {
+            options = options.user_and_password(username.clone(), password.clone());
+        }
+        let client = options
+            .connect(config.url)
             .await
             .map_err(|error| NatsCoordinatorError::Nats(error.to_string()))?;
         Self::new_with_ttl(client, config.namespace, config.ttl).await
