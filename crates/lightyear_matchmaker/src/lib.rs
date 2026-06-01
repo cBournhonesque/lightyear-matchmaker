@@ -1,8 +1,16 @@
 //! Facade crate for the common Lightyear Matchmaker APIs and optional integrations.
 //!
+//! Lightyear Matchmaker sits between clients, game servers, and server
+//! providers. Clients talk to the matchmaker, the matchmaker selects or creates
+//! capacity through a provider, game servers prepare and validate assignments,
+//! and clients receive Lightyear connection material when the selected server is
+//! ready for them.
+//!
 //! Most domain types are re-exported from `lightyear_matchmaker_core`. Optional
 //! integration crates are exposed behind Cargo features so applications can opt
-//! into only the runtime surfaces they need.
+//! into only the runtime surfaces they need: the deployable server, NATS
+//! coordination, Lightyear Netcode token issuing, Bevy client/server helpers,
+//! and provider implementations.
 
 pub use lightyear_matchmaker_core::*;
 

@@ -13,6 +13,10 @@ source = "nats_static"
 require_assignment_prepare = true
 assignment_prepare_timeout_ms = 3000
 assignment_prepare_poll_ms = 25
+assignment_prepare_max_retries = 1
+assignment_retry_backoff_ms = 0
+assignment_timeout_secs = 60
+lifecycle_job_max_deliver = 10
 
 [nats]
 url = "nats://nats:4222"
@@ -24,6 +28,7 @@ server_capacity_secs = 30
 assignments_secs = 60
 assignments_prepared_secs = 60
 active_connections_secs = 30
+server_drains_secs = 86400
 lifecycle_work_secs = 600
 
 [lightyear]

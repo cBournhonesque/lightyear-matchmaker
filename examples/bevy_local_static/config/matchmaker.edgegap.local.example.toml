@@ -15,6 +15,10 @@ source = "edgegap"
 require_assignment_prepare = true
 assignment_prepare_timeout_ms = 30000
 assignment_prepare_poll_ms = 100
+assignment_prepare_max_retries = 1
+assignment_retry_backoff_ms = 250
+assignment_timeout_secs = 60
+lifecycle_job_max_deliver = 10
 
 [nats]
 # This must be reachable by both the matchmaker and the Edgegap deployment.
@@ -27,6 +31,7 @@ server_capacity_secs = 30
 assignments_secs = 60
 assignments_prepared_secs = 60
 active_connections_secs = 30
+server_drains_secs = 86400
 lifecycle_work_secs = 600
 
 [lightyear]

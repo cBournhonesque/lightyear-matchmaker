@@ -1,8 +1,20 @@
 //! Server provider contract and allocation-related data types.
 //!
-//! Providers implement this contract to map a game/version/player request onto
-//! a reachable server allocation without leaking provider-specific APIs into
-//! the core model.
+//! A provider owns server capacity outside the matchmaker. It can be as simple
+//! as a configured list of already-running static servers, or as dynamic as an
+//! Edgegap bridge that creates a session, waits for deployment readiness, and
+//! later releases provider-side state.
+//!
+//! Providers map a game/version/player or lobby request onto a reachable server
+//! allocation without leaking provider-specific APIs into the core model. The
+//! returned `allocation_id` is provider-owned capacity/session identity; the
+//! matchmaker later creates one or more game-server assignments from that
+//! allocation.
+//!
+//! Capacity returned by a provider or reported by a game server is placement
+//! metadata, not a reservation. The current model assumes one matchmaker. A
+//! future reservation layer can add matchmaker-owned capacity holds before
+//! assignment persistence if multi-matchmaker placement races become a target.
 
 use crate::{LobbyId, MatchmakerError, PlayerId, Result};
 use serde::{Deserialize, Serialize};
@@ -118,6 +130,9 @@ pub struct AllocationRequest {
     #[serde(default)]
     /// Optional region latency hints.
     pub latencies: Vec<LatencyReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Server ids the provider should avoid for this allocation attempt.
+    pub avoid_server_ids: Vec<ServerId>,
 }
 
 impl AllocationRequest {
@@ -126,6 +141,13 @@ impl AllocationRequest {
         validate_token("game", &self.game, 64)?;
         validate_token("version", &self.version, 64)?;
         Ok(())
+    }
+
+    /// Returns whether this request asks providers to avoid a server.
+    pub fn avoids_server(&self, server_id: &ServerId) -> bool {
+        self.avoid_server_ids
+            .iter()
+            .any(|avoided| avoided == server_id)
     }
 }
 
@@ -345,5 +367,22 @@ mod tests {
             Some("id:42")
         );
         assert_eq!(RoomSelection::Auto.room_key(), None);
+    }
+
+    #[test]
+    fn allocation_request_matches_avoided_servers() {
+        let request = AllocationRequest {
+            request_id: RequestId::new("request-1"),
+            game: "demo".to_string(),
+            version: "dev".to_string(),
+            player_id: PlayerId::new("player-1"),
+            lobby_id: None,
+            room: RoomSelection::Auto,
+            latencies: Vec::new(),
+            avoid_server_ids: vec![ServerId::new("failed-server")],
+        };
+
+        assert!(request.avoids_server(&ServerId::new("failed-server")));
+        assert!(!request.avoids_server(&ServerId::new("other-server")));
     }
 }

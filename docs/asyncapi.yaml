@@ -1,0 +1,440 @@
+asyncapi: 2.6.0
+info:
+  title: Lightyear Matchmaker WebSocket API
+  version: 1.0.0
+  description: |
+    Versioned JSON websocket protocol for Lightyear Matchmaker.
+
+    Clients connect to `/ws`. A `hello` message is optional for v1 clients, but
+    clients that want explicit version negotiation should send it before other
+    messages. If omitted, the server treats the connection as protocol v1.
+servers:
+  local:
+    url: 127.0.0.1:3000
+    protocol: ws
+    description: Local development websocket server
+channels:
+  /ws:
+    description: Client websocket session with the matchmaker.
+    subscribe:
+      summary: Messages received by the matchmaker from clients.
+      message:
+        oneOf:
+          - $ref: "#/components/messages/ClientHello"
+          - $ref: "#/components/messages/RequestPlay"
+          - $ref: "#/components/messages/LobbyCreate"
+          - $ref: "#/components/messages/LobbyJoinCode"
+          - $ref: "#/components/messages/LobbySetReady"
+    publish:
+      summary: Messages sent by the matchmaker to clients.
+      message:
+        oneOf:
+          - $ref: "#/components/messages/ServerHello"
+          - $ref: "#/components/messages/IdentityResolved"
+          - $ref: "#/components/messages/LobbyUpdated"
+          - $ref: "#/components/messages/QueueProgress"
+          - $ref: "#/components/messages/AssignmentPreparing"
+          - $ref: "#/components/messages/AssignmentReady"
+          - $ref: "#/components/messages/Error"
+components:
+  messages:
+    ClientHello:
+      name: clientHello
+      payload:
+        $ref: "#/components/schemas/ClientHello"
+    RequestPlay:
+      name: requestPlay
+      payload:
+        $ref: "#/components/schemas/RequestPlay"
+    LobbyCreate:
+      name: lobbyCreate
+      payload:
+        $ref: "#/components/schemas/LobbyCreate"
+    LobbyJoinCode:
+      name: lobbyJoinCode
+      payload:
+        $ref: "#/components/schemas/LobbyJoinCode"
+    LobbySetReady:
+      name: lobbySetReady
+      payload:
+        $ref: "#/components/schemas/LobbySetReady"
+    ServerHello:
+      name: serverHello
+      payload:
+        $ref: "#/components/schemas/ServerHello"
+    IdentityResolved:
+      name: identityResolved
+      payload:
+        $ref: "#/components/schemas/IdentityResolved"
+    LobbyUpdated:
+      name: lobbyUpdated
+      payload:
+        $ref: "#/components/schemas/LobbyUpdated"
+    QueueProgress:
+      name: queueProgress
+      payload:
+        $ref: "#/components/schemas/QueueProgress"
+    AssignmentPreparing:
+      name: assignmentPreparing
+      payload:
+        $ref: "#/components/schemas/AssignmentPreparing"
+    AssignmentReady:
+      name: assignmentReady
+      payload:
+        $ref: "#/components/schemas/AssignmentReady"
+    Error:
+      name: error
+      payload:
+        $ref: "#/components/schemas/Error"
+  schemas:
+    ClientHello:
+      type: object
+      required:
+        - type
+        - protocol_version
+      properties:
+        type:
+          type: string
+          const: hello
+        protocol_version:
+          type: integer
+          minimum: 1
+          description: Client websocket protocol version.
+        client:
+          type: string
+          description: Optional client implementation label.
+    RequestPlay:
+      type: object
+      required:
+        - type
+        - game
+        - version
+      properties:
+        type:
+          type: string
+          const: request_play
+        game:
+          type: string
+        version:
+          type: string
+        room:
+          $ref: "#/components/schemas/RoomSelection"
+        latencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/LatencyReport"
+          default: []
+    LobbyCreate:
+      type: object
+      required:
+        - type
+        - game
+        - version
+      properties:
+        type:
+          type: string
+          const: lobby_create
+        game:
+          type: string
+        version:
+          type: string
+        max_players:
+          type: integer
+          minimum: 1
+          default: 2
+        latencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/LatencyReport"
+          default: []
+    LobbyJoinCode:
+      type: object
+      required:
+        - type
+        - code
+      properties:
+        type:
+          type: string
+          const: lobby_join_code
+        code:
+          type: string
+        latencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/LatencyReport"
+          default: []
+    LobbySetReady:
+      type: object
+      required:
+        - type
+        - ready
+      properties:
+        type:
+          type: string
+          const: lobby_set_ready
+        ready:
+          type: boolean
+    ServerHello:
+      type: object
+      required:
+        - type
+        - protocol_version
+        - min_protocol_version
+        - max_protocol_version
+      properties:
+        type:
+          type: string
+          const: hello
+        protocol_version:
+          type: integer
+          minimum: 1
+        min_protocol_version:
+          type: integer
+          minimum: 1
+        max_protocol_version:
+          type: integer
+          minimum: 1
+        server:
+          type: string
+    IdentityResolved:
+      type: object
+      required:
+        - type
+        - player
+      properties:
+        type:
+          type: string
+          const: identity_resolved
+        player:
+          $ref: "#/components/schemas/PlayerSummary"
+    LobbyUpdated:
+      type: object
+      required:
+        - type
+        - lobby
+      properties:
+        type:
+          type: string
+          const: lobby_updated
+        lobby:
+          $ref: "#/components/schemas/Lobby"
+    QueueProgress:
+      type: object
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          const: queue_progress
+        message:
+          type: string
+    AssignmentPreparing:
+      type: object
+      required:
+        - type
+        - assignment_id
+      properties:
+        type:
+          type: string
+          const: assignment_preparing
+        assignment_id:
+          type: string
+    AssignmentReady:
+      type: object
+      required:
+        - type
+        - connect
+      properties:
+        type:
+          type: string
+          const: assignment_ready
+        connect:
+          $ref: "#/components/schemas/ConnectionGrant"
+    Error:
+      type: object
+      required:
+        - type
+        - code
+        - message
+        - retryable
+      properties:
+        type:
+          type: string
+          const: error
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        retryable:
+          type: boolean
+          description: Whether the client may retry the operation with backoff.
+    ErrorCode:
+      type: string
+      enum:
+        - invalid_json
+        - invalid_request
+        - unsupported_protocol_version
+        - no_capacity
+        - draining
+        - provider_error
+        - token_error
+        - config_error
+        - transport_error
+    PlayerSummary:
+      type: object
+      required:
+        - id
+        - display_name
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+    RoomSelection:
+      oneOf:
+        - type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              const: auto
+        - type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              const: new
+        - type: object
+          required: [mode, value]
+          properties:
+            mode:
+              type: string
+              const: code
+            value:
+              type: string
+        - type: object
+          required: [mode, value]
+          properties:
+            mode:
+              type: string
+              const: id
+            value:
+              type: string
+    LatencyReport:
+      type: object
+      required:
+        - region
+        - rtt_ms
+        - transport
+      properties:
+        region:
+          type: string
+        rtt_ms:
+          type: integer
+          minimum: 0
+        transport:
+          oneOf:
+            - type: string
+              enum: [http, udp]
+            - type: object
+              required: [other]
+              properties:
+                other:
+                  type: string
+    Lobby:
+      type: object
+      required:
+        - id
+        - join_code
+        - owner
+        - members
+        - game
+        - version
+        - max_players
+        - ready
+        - metadata
+      properties:
+        id:
+          type: string
+        join_code:
+          type: string
+        owner:
+          type: string
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/LobbyMember"
+        game:
+          type: string
+        version:
+          type: string
+        max_players:
+          type: integer
+          minimum: 1
+        ready:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    LobbyMember:
+      type: object
+      required:
+        - player_id
+        - display_name
+        - ready
+        - latencies
+        - metadata
+      properties:
+        player_id:
+          type: string
+        display_name:
+          type: string
+        team:
+          type: string
+          nullable: true
+        ready:
+          type: boolean
+        latencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/LatencyReport"
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    ConnectionGrant:
+      type: object
+      required:
+        - kind
+        - client_id
+        - endpoint
+        - token
+      properties:
+        kind:
+          type: string
+          enum: [lightyear_netcode]
+        client_id:
+          type: integer
+          format: uint64
+          minimum: 0
+        endpoint:
+          $ref: "#/components/schemas/ServerEndpoint"
+        token:
+          type: string
+        cert_digest:
+          type: string
+          nullable: true
+    ServerEndpoint:
+      type: object
+      required:
+        - public_ip
+        - port
+      properties:
+        public_ip:
+          type: string
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535

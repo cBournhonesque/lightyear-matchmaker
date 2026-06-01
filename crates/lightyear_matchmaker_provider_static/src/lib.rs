@@ -1,8 +1,12 @@
 //! Static server provider.
 //!
-//! This provider selects from a configured list of always-known servers. It is
-//! useful for local development, bare-metal deployments, and tests that do not
-//! need dynamic orchestration.
+//! A provider is the matchmaker's capacity backend. The static provider selects
+//! from a configured list of always-known game servers and returns the endpoint
+//! and server id the matchmaker should assign clients to.
+//!
+//! Static allocation does not launch or destroy game servers, and release is a
+//! no-op. It is useful for local development, bare-metal deployments, and tests
+//! that do not need dynamic orchestration.
 
 #![allow(async_fn_in_trait)]
 
@@ -146,6 +150,10 @@ fn accepts_request(server: &StaticServerConfig, request: &AllocationRequest) -> 
         && server.game == request.game
         && server.version == request.version
         && server.total_players < server.max_players.max(1)
+        && !request
+            .avoid_server_ids
+            .iter()
+            .any(|server_id| server_id.0 == server.id)
 }
 
 fn latency_rank(server: &StaticServerConfig, request: &AllocationRequest) -> u32 {
@@ -212,6 +220,7 @@ mod tests {
                 lobby_id: None,
                 room: RoomSelection::Auto,
                 latencies: Vec::new(),
+                avoid_server_ids: Vec::new(),
             })
             .await
             .unwrap();
@@ -248,6 +257,40 @@ mod tests {
                         transport: LatencyTransport::Http,
                     },
                 ],
+                avoid_server_ids: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(allocation.server_id, ServerId::new("remote"));
+    }
+
+    #[tokio::test]
+    async fn skips_avoided_servers() {
+        let provider = StaticServerProvider::new(StaticProviderConfig {
+            servers: vec![server("local", "local", 0), server("remote", "remote", 0)],
+        });
+        let allocation = provider
+            .allocate(AllocationRequest {
+                request_id: RequestId::new("request-3"),
+                game: "demo".to_string(),
+                version: "dev".to_string(),
+                player_id: PlayerId::new("ip:127.0.0.1"),
+                lobby_id: None,
+                room: RoomSelection::Auto,
+                latencies: vec![
+                    LatencyReport {
+                        region: "local".to_string(),
+                        rtt_ms: 10,
+                        transport: LatencyTransport::Http,
+                    },
+                    LatencyReport {
+                        region: "remote".to_string(),
+                        rtt_ms: 100,
+                        transport: LatencyTransport::Http,
+                    },
+                ],
+                avoid_server_ids: vec![ServerId::new("local")],
             })
             .await
             .unwrap();

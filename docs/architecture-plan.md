@@ -56,8 +56,11 @@ Lessons to apply here:
 - start with simple tickets/lobbies before introducing distributed matching
   functions.
 
-Open Match itself should remain an architectural reference for now, not a
-dependency.
+Open Match 2 should remain optional. It can become a ticket pool and
+match-function backend once the local ticket/match abstractions are stable, but
+Lightyear Matchmaker should still own director responsibilities: collision
+resolution, provider allocation, game-server assignment preparation, token
+issuing, and websocket assignment delivery.
 
 Sources:
 
@@ -276,6 +279,8 @@ lightyear-matchmaker/
   docs/
     architecture-plan.md
     protocol.md
+    state-machines.md
+    open-match2-integration.md
     provider-contract.md
     lobby-model.md
   crates/
@@ -286,6 +291,7 @@ lightyear-matchmaker/
     lightyear_matchmaker_nats/
     lightyear_matchmaker_provider_static/
     lightyear_matchmaker_provider_edgegap/
+    lightyear_matchmaker_open_match2/
     lightyear_matchmaker_bevy_client/
     lightyear_matchmaker_bevy_server/
   examples/
@@ -504,7 +510,7 @@ Do not create crates for these until the static and Edgegap path is solid:
 The WebSocket API should be message-oriented and versioned:
 
 ```json
-{ "type": "hello", "protocol": 1, "client": "web" }
+{ "type": "hello", "protocol_version": 1, "client": "web" }
 { "type": "lobby.create", "visibility": "private", "mode": "duo" }
 { "type": "lobby.join_code", "code": "ABCD" }
 { "type": "lobby.set_ready", "ready": true }
@@ -820,7 +826,8 @@ The current baseline proves:
   ready token only after preparation,
 - active-connection reporting after assignment receipt,
 - roster/team/match metadata on assignments and Bevy validation context,
-- a minimal Bevy client helper/plugin surface for websocket request-play,
+- a Bevy client helper/plugin surface with one-shot request-play plus a native
+  persistent websocket session for lobby and assignment lifecycle events,
 - a mock Edgegap provider bridge with Edgegap IDs preserved in provider
   metadata,
 - in-process lobby create/join-code/ready-check flow with shared roster
@@ -884,13 +891,18 @@ Next implementation slices:
 
 6. Bevy client plugin
 
-   - Status: minimal helper/plugin crate implemented as
-     `lightyear_matchmaker_bevy_client`.
-   - Add a minimal client plugin or helper that opens the matchmaker WebSocket,
-     sends `request_play`, receives `ConnectionGrant`, and exposes the token to
-     game code.
+   - Status: one-shot request-play helper and native persistent websocket
+     plugin session are implemented in `lightyear_matchmaker_bevy_client`.
+     The plugin exposes lobby create/join/ready messages, protocol/session
+     events, lobby snapshots, assignment preparation, connection grant state,
+     structured errors, and reconnect reporting. Browser/wasm persistent
+     sessions and higher-level UX state remain pending.
+   - Keep the one-shot helper for simple request-play flows.
+   - Use the persistent plugin session for lobby UI flows that need create,
+     join-code, ready-check, queue progress, and connection grant transitions.
    - Headless/local test: use the client helper against the local matchmaker
-     and headless server path.
+     and headless server path; add websocket integration tests for the
+     persistent plugin once the UI-facing state model is finalized.
 
 7. Edgegap provider bridge
 

@@ -12,6 +12,7 @@ description = "Deployable matchmaker server for Lightyear Matchmaker"
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
+futures-util.workspace = true
 lightyear_matchmaker_core.workspace = true
 lightyear_matchmaker_lightyear.workspace = true
 lightyear_matchmaker_nats.workspace = true
@@ -26,7 +27,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-futures-util.workspace = true
 lightyear_matchmaker_bevy_client.workspace = true
 tokio-tungstenite.workspace = true
 

@@ -1,0 +1,365 @@
+openapi: 3.1.0
+info:
+  title: Lightyear Matchmaker HTTP API
+  version: 0.1.0
+  description: |
+    HTTP operational surface for Lightyear Matchmaker.
+
+    The websocket protocol is documented separately with AsyncAPI in
+    `docs/asyncapi.yaml`, and is served by the matchmaker at `/asyncapi.yaml`.
+servers:
+  - url: http://127.0.0.1:3000
+    description: Local development server
+paths:
+  /health:
+    get:
+      summary: Liveness check
+      operationId: health
+      responses:
+        "200":
+          description: The process is serving HTTP.
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                ok:
+                  value: ok
+  /ready:
+    get:
+      summary: Readiness check
+      operationId: ready
+      responses:
+        "200":
+          description: The process is ready to serve matchmaker traffic.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessStatus"
+        "503":
+          description: The process is alive but not ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessStatus"
+  /metrics:
+    get:
+      summary: Runtime metrics snapshot
+      operationId: metrics
+      responses:
+        "200":
+          description: JSON runtime counters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsSnapshot"
+  /admin/drain:
+    post:
+      summary: Start matchmaker-wide drain
+      description: |
+        Marks the matchmaker as draining. New websocket upgrades and new
+        websocket allocation/lobby messages are rejected while existing
+        in-flight handlers may finish or fail naturally.
+      operationId: drainMatchmaker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DrainRequest"
+      responses:
+        "200":
+          description: Drain state after the update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalDrainStatus"
+    delete:
+      summary: Stop matchmaker-wide drain
+      operationId: undrainMatchmaker
+      responses:
+        "200":
+          description: Drain state after the update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalDrainStatus"
+  /admin/servers/{server_id}/drain:
+    post:
+      summary: Drain one game server
+      description: |
+        Marks a game server as drained, suppresses future allocations to that
+        server, cancels pending NATS assignments for that server, and queues
+        provider allocation release work for canceled assignments.
+      operationId: drainGameServer
+      parameters:
+        - name: server_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DrainRequest"
+      responses:
+        "200":
+          description: Per-server drain result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerDrainResponse"
+        "500":
+          description: Drain operation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerDrainResponse"
+    delete:
+      summary: Clear one game-server drain marker
+      operationId: undrainGameServer
+      parameters:
+        - name: server_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Per-server drain result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerDrainResponse"
+        "500":
+          description: Undrain operation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerDrainResponse"
+  /openapi.yaml:
+    get:
+      summary: OpenAPI document
+      operationId: openapiYaml
+      responses:
+        "200":
+          description: This OpenAPI document.
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /asyncapi.yaml:
+    get:
+      summary: AsyncAPI websocket document
+      operationId: asyncapiYaml
+      responses:
+        "200":
+          description: AsyncAPI document for `/ws`.
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /ws:
+    get:
+      summary: WebSocket upgrade endpoint
+      description: |
+        Upgrades to the Lightyear Matchmaker websocket protocol.
+        Message schemas are described in `docs/asyncapi.yaml`.
+      operationId: websocketUpgrade
+      responses:
+        "101":
+          description: WebSocket upgrade accepted.
+        "400":
+          description: WebSocket upgrade failed.
+components:
+  schemas:
+    DrainRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+    GlobalDrainStatus:
+      type: object
+      required:
+        - draining
+      properties:
+        draining:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+    ServerDrainResponse:
+      type: object
+      required:
+        - server_id
+        - draining
+        - nats_configured
+        - canceled_assignments
+        - release_jobs_queued
+      properties:
+        server_id:
+          type: string
+        draining:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        nats_configured:
+          type: boolean
+        canceled_assignments:
+          type: integer
+          format: uint64
+          minimum: 0
+        release_jobs_queued:
+          type: integer
+          format: uint64
+          minimum: 0
+    ReadinessStatus:
+      type: object
+      required:
+        - ready
+        - draining
+        - nats_configured
+        - nats_ok
+        - message
+      properties:
+        ready:
+          type: boolean
+        draining:
+          type: boolean
+        nats_configured:
+          type: boolean
+        nats_ok:
+          type: boolean
+        message:
+          type: string
+    LobbyMetrics:
+      type: object
+      required:
+        - lobbies_total
+        - websocket_sessions_registered
+        - assigning_lobbies
+      properties:
+        lobbies_total:
+          type: integer
+          format: uint64
+          minimum: 0
+        websocket_sessions_registered:
+          type: integer
+          format: uint64
+          minimum: 0
+        assigning_lobbies:
+          type: integer
+          format: uint64
+          minimum: 0
+    MetricsSnapshot:
+      type: object
+      required:
+        - uptime_secs
+        - draining
+        - nats_configured
+        - websocket_sessions_opened
+        - websocket_sessions_active
+        - websocket_sessions_closed
+        - request_play_started
+        - request_play_failed
+        - assignments_created
+        - assignments_prepared
+        - assignments_ready
+        - assignment_prepare_retries
+        - assignment_connection_retries
+        - assignments_timed_out
+        - lifecycle_jobs_received
+        - lifecycle_jobs_succeeded
+        - lifecycle_jobs_failed
+        - lifecycle_jobs_dead_lettered
+        - lifecycle_invalid_payloads
+        - lifecycle_release_succeeded
+        - lifecycle_delete_succeeded
+        - lobbies
+      properties:
+        uptime_secs:
+          type: integer
+          format: uint64
+          minimum: 0
+        draining:
+          type: boolean
+        nats_configured:
+          type: boolean
+        websocket_sessions_opened:
+          type: integer
+          format: uint64
+          minimum: 0
+        websocket_sessions_active:
+          type: integer
+          format: uint64
+          minimum: 0
+        websocket_sessions_closed:
+          type: integer
+          format: uint64
+          minimum: 0
+        request_play_started:
+          type: integer
+          format: uint64
+          minimum: 0
+        request_play_failed:
+          type: integer
+          format: uint64
+          minimum: 0
+        assignments_created:
+          type: integer
+          format: uint64
+          minimum: 0
+        assignments_prepared:
+          type: integer
+          format: uint64
+          minimum: 0
+        assignments_ready:
+          type: integer
+          format: uint64
+          minimum: 0
+        assignment_prepare_retries:
+          type: integer
+          format: uint64
+          minimum: 0
+        assignment_connection_retries:
+          type: integer
+          format: uint64
+          minimum: 0
+        assignments_timed_out:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_jobs_received:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_jobs_succeeded:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_jobs_failed:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_jobs_dead_lettered:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_invalid_payloads:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_release_succeeded:
+          type: integer
+          format: uint64
+          minimum: 0
+        lifecycle_delete_succeeded:
+          type: integer
+          format: uint64
+          minimum: 0
+        lobbies:
+          $ref: "#/components/schemas/LobbyMetrics"

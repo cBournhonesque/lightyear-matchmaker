@@ -1,8 +1,15 @@
 //! Bevy game-server integration for matchmaker coordination.
 //!
-//! This crate provides a Bevy plugin, NATS bridge, assignment tracking, and a
-//! provider-independent connection validation contract that game code can use
-//! before wiring into Lightyear's concrete server hooks.
+//! This crate is used by the authoritative game process, not by the
+//! client-facing matchmaker. The plugin publishes game-server readiness and
+//! capacity, polls assignments addressed to the server, prepares local
+//! admission state, exposes assignment context to game code, and reports active
+//! Lightyear connections back through the coordination backend.
+//!
+//! The matchmaker decides which clients should be allowed to connect and issues
+//! Lightyear connection grants. The game server still performs the final
+//! validation step by checking the connecting Lightyear client id against its
+//! prepared assignments.
 
 use bevy_app::{App, Plugin, Update};
 #[cfg(feature = "lightyear-netcode")]
@@ -29,7 +36,7 @@ use lightyear_netcode::NetcodeServer;
 use std::collections::HashSet;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, RwLock, mpsc as std_mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc as tokio_mpsc;
 use tracing::{info, warn};
 
@@ -39,6 +46,7 @@ pub struct LightyearMatchmakerServerPlugin {
     server: RegisteredGameServer,
     max_players: u32,
     max_rooms: u32,
+    assignment_timeout: Duration,
     nats_bridge: Option<NatsBridgeConfig>,
     #[cfg(feature = "lightyear-netcode")]
     lightyear_netcode: Option<LightyearNetcodeIntegrationConfig>,
@@ -51,6 +59,7 @@ impl LightyearMatchmakerServerPlugin {
             server,
             max_players: 64,
             max_rooms: 1,
+            assignment_timeout: Duration::from_secs(60),
             nats_bridge: None,
             #[cfg(feature = "lightyear-netcode")]
             lightyear_netcode: None,
@@ -61,6 +70,16 @@ impl LightyearMatchmakerServerPlugin {
     pub fn with_capacity_limits(mut self, max_players: u32, max_rooms: u32) -> Self {
         self.max_players = max_players;
         self.max_rooms = max_rooms;
+        self
+    }
+
+    /// Sets how long a prepared assignment may wait for a client connection.
+    ///
+    /// When this timeout elapses, the local admission gate revokes the client
+    /// id and publishes an inactive connection report. This keeps old
+    /// `ConnectToken`s from remaining valid in a long-running game server.
+    pub fn with_assignment_timeout(mut self, timeout: Duration) -> Self {
+        self.assignment_timeout = timeout;
         self
     }
 
@@ -98,6 +117,7 @@ impl Plugin for LightyearMatchmakerServerPlugin {
             self.max_players,
             self.max_rooms,
         ))
+        .insert_resource(AssignmentTimeout(self.assignment_timeout))
         .add_message::<PublishReadiness>()
         .add_message::<PublishCapacity>()
         .add_message::<AssignmentReceived>()
@@ -111,6 +131,7 @@ impl Plugin for LightyearMatchmakerServerPlugin {
                 handle_assignment_messages,
                 handle_client_connected_messages,
                 handle_client_disconnected_messages,
+                expire_unconnected_assignment_messages,
             ),
         );
 
@@ -176,6 +197,9 @@ impl Default for NatsBridgeConfig {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, Resource)]
+struct AssignmentTimeout(Duration);
 
 #[derive(Resource)]
 /// Bevy resource that owns the background NATS bridge channels.
@@ -509,8 +533,25 @@ pub struct MatchmakerServerState {
     capacity: ServerCapacity,
     connection_gate: AssignmentConnectionGate,
     assignment_ids: BTreeSet<lightyear_matchmaker_core::AssignmentId>,
-    assignments: BTreeMap<LightyearClientId, AssignmentRecord>,
+    assignments: BTreeMap<LightyearClientId, TrackedAssignment>,
     outbox: Vec<GameServerReport>,
+}
+
+#[derive(Clone, Debug)]
+struct TrackedAssignment {
+    record: AssignmentRecord,
+    received_at: Instant,
+    connected: bool,
+}
+
+impl TrackedAssignment {
+    fn new(record: AssignmentRecord) -> Self {
+        Self {
+            record,
+            received_at: Instant::now(),
+            connected: false,
+        }
+    }
 }
 
 impl MatchmakerServerState {
@@ -572,17 +613,20 @@ impl MatchmakerServerState {
         }
         let client_id = assignment.client_id;
         self.connection_gate.allow_client(client_id);
-        self.assignments.insert(client_id, assignment);
+        self.assignments
+            .insert(client_id, TrackedAssignment::new(assignment));
         if let Some(assignment) = self.assignments.get(&client_id) {
             self.outbox.push(GameServerReport::AssignmentPrepared(
-                AssignmentPrepared::accepted(assignment),
+                AssignmentPrepared::accepted(&assignment.record),
             ));
         }
     }
 
     /// Iterates over current assignments.
     pub fn assignments(&self) -> impl Iterator<Item = &AssignmentRecord> {
-        self.assignments.values()
+        self.assignments
+            .values()
+            .map(|assignment| &assignment.record)
     }
 
     /// Returns the number of current assignments.
@@ -592,7 +636,9 @@ impl MatchmakerServerState {
 
     /// Returns the assignment for a client id.
     pub fn assignment_for_client(&self, client_id: LightyearClientId) -> Option<&AssignmentRecord> {
-        self.assignments.get(&client_id)
+        self.assignments
+            .get(&client_id)
+            .map(|assignment| &assignment.record)
     }
 
     /// Returns game-facing assignment context for a client id.
@@ -602,7 +648,7 @@ impl MatchmakerServerState {
     ) -> Option<PlayerAssignmentContext> {
         self.assignments
             .get(&client_id)
-            .map(|assignment| context_for_assignment(assignment, client_id))
+            .map(|assignment| context_for_assignment(&assignment.record, client_id))
     }
 
     /// Returns whether the client id has an assignment.
@@ -612,9 +658,11 @@ impl MatchmakerServerState {
 
     /// Marks an assigned client as connected and queues an active report.
     pub fn client_connected(&mut self, client_id: LightyearClientId) -> bool {
-        let Some(assignment) = self.validate_connection(client_id).assignment().cloned() else {
+        let Some(assignment) = self.assignments.get_mut(&client_id) else {
             return false;
         };
+        assignment.connected = true;
+        let assignment = assignment.record.clone();
         self.outbox
             .push(GameServerReport::ActiveConnection(ActiveConnection {
                 server_id: self.server.server_id.clone(),
@@ -632,6 +680,8 @@ impl MatchmakerServerState {
         let Some(assignment) = self.assignments.remove(&client_id) else {
             return false;
         };
+        let assignment = assignment.record;
+        self.assignment_ids.remove(&assignment.assignment_id);
         self.connection_gate.revoke_client(client_id);
         self.outbox
             .push(GameServerReport::ActiveConnection(ActiveConnection {
@@ -642,6 +692,52 @@ impl MatchmakerServerState {
             }));
         info!(%client_id, player_id = %assignment.player_id, "matchmaker client disconnected");
         true
+    }
+
+    /// Expires assignments that were prepared but never became active.
+    ///
+    /// The matchmaker consumes NATS assignments once preparation is reported,
+    /// so the game server must also forget local allow-list entries that never
+    /// turn into real client connections. Connected clients are not expired by
+    /// this method; they are removed only on disconnect.
+    pub fn expire_unconnected_assignments(&mut self, timeout: Duration) -> Vec<AssignmentRecord> {
+        let now = Instant::now();
+        let expired_client_ids = self
+            .assignments
+            .iter()
+            .filter_map(|(client_id, assignment)| {
+                if !assignment.connected && now.duration_since(assignment.received_at) >= timeout {
+                    Some(*client_id)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut expired = Vec::new();
+        for client_id in expired_client_ids {
+            let Some(assignment) = self.assignments.remove(&client_id) else {
+                continue;
+            };
+            let assignment = assignment.record;
+            self.assignment_ids.remove(&assignment.assignment_id);
+            self.connection_gate.revoke_client(client_id);
+            self.outbox
+                .push(GameServerReport::ActiveConnection(ActiveConnection {
+                    server_id: self.server.server_id.clone(),
+                    client_id,
+                    player_id: assignment.player_id.clone(),
+                    connected: false,
+                }));
+            warn!(
+                %client_id,
+                player_id = %assignment.player_id,
+                assignment_id = %assignment.assignment_id,
+                "matchmaker assignment expired before client connected"
+            );
+            expired.push(assignment);
+        }
+        expired
     }
 
     /// Drains queued reports for bridge publication.
@@ -659,8 +755,8 @@ impl ConnectionValidator for MatchmakerServerState {
         match self.assignments.get(&request.client_id) {
             Some(assignment) => ConnectionValidation::Accepted(Box::new(ValidatedConnection {
                 client_id: request.client_id,
-                context: context_for_assignment(assignment, request.client_id),
-                assignment: assignment.clone(),
+                context: context_for_assignment(&assignment.record, request.client_id),
+                assignment: assignment.record.clone(),
             })),
             None => ConnectionValidation::Rejected(RejectedConnection {
                 client_id: request.client_id,
@@ -736,6 +832,13 @@ fn handle_client_disconnected_messages(
     for message in messages.read() {
         state.client_disconnected(message.client_id);
     }
+}
+
+fn expire_unconnected_assignment_messages(
+    mut state: ResMut<MatchmakerServerState>,
+    timeout: Res<AssignmentTimeout>,
+) {
+    state.expire_unconnected_assignments(timeout.0);
 }
 
 #[cfg(feature = "lightyear-netcode")]
@@ -940,6 +1043,90 @@ mod tests {
         assert!(!state.is_client_allowed(client_id));
         assert!(!state.connection_gate().is_client_allowed(client_id));
         assert!(!state.validate_connection(client_id).is_accepted());
+    }
+
+    #[test]
+    fn unconnected_assignments_expire_and_revoke_gate() {
+        let server = RegisteredGameServer {
+            server_id: ServerId::new("local-dev"),
+            provider: ProviderKind::Static,
+            endpoint: ServerEndpoint {
+                public_ip: "127.0.0.1".parse().unwrap(),
+                port: 7777,
+            },
+            game: "demo".to_string(),
+            version: "dev".to_string(),
+            region: Some("local".to_string()),
+            metadata: BTreeMap::new(),
+        };
+        let mut state = MatchmakerServerState::new(server, 64, 4);
+        let client_id = LightyearClientId::new(42);
+        state.register_assignment(AssignmentRecord {
+            assignment_id: AssignmentId::new("assignment-42"),
+            request_id: RequestId::new("request-42"),
+            allocation_id: AllocationId::new("static:local-dev:ip:127.0.0.1"),
+            server_id: ServerId::new("local-dev"),
+            client_id,
+            player_id: PlayerId::new("ip:127.0.0.1"),
+            lobby_id: None,
+            team: Some("solo".to_string()),
+            roster: Vec::new(),
+            match_metadata: BTreeMap::new(),
+            metadata: BTreeMap::new(),
+        });
+        let _ = state.drain_reports();
+
+        let expired = state.expire_unconnected_assignments(Duration::ZERO);
+
+        assert_eq!(expired.len(), 1);
+        assert!(!state.is_client_allowed(client_id));
+        assert!(!state.connection_gate().is_client_allowed(client_id));
+        assert!(state.assignment_for_client(client_id).is_none());
+        let reports = state.drain_reports();
+        assert!(reports.iter().any(|report| matches!(
+            report,
+            GameServerReport::ActiveConnection(connection)
+                if connection.client_id == client_id && !connection.connected
+        )));
+    }
+
+    #[test]
+    fn connected_assignments_do_not_expire() {
+        let server = RegisteredGameServer {
+            server_id: ServerId::new("local-dev"),
+            provider: ProviderKind::Static,
+            endpoint: ServerEndpoint {
+                public_ip: "127.0.0.1".parse().unwrap(),
+                port: 7777,
+            },
+            game: "demo".to_string(),
+            version: "dev".to_string(),
+            region: Some("local".to_string()),
+            metadata: BTreeMap::new(),
+        };
+        let mut state = MatchmakerServerState::new(server, 64, 4);
+        let client_id = LightyearClientId::new(42);
+        state.register_assignment(AssignmentRecord {
+            assignment_id: AssignmentId::new("assignment-42"),
+            request_id: RequestId::new("request-42"),
+            allocation_id: AllocationId::new("static:local-dev:ip:127.0.0.1"),
+            server_id: ServerId::new("local-dev"),
+            client_id,
+            player_id: PlayerId::new("ip:127.0.0.1"),
+            lobby_id: None,
+            team: Some("solo".to_string()),
+            roster: Vec::new(),
+            match_metadata: BTreeMap::new(),
+            metadata: BTreeMap::new(),
+        });
+        assert!(state.client_connected(client_id));
+        let _ = state.drain_reports();
+
+        let expired = state.expire_unconnected_assignments(Duration::ZERO);
+
+        assert!(expired.is_empty());
+        assert!(state.is_client_allowed(client_id));
+        assert!(state.connection_gate().is_client_allowed(client_id));
     }
 
     #[cfg(feature = "lightyear-netcode")]

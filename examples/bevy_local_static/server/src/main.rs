@@ -58,6 +58,7 @@ fn main() -> anyhow::Result<()> {
     let registered = config.registered_server();
     let plugin = LightyearMatchmakerServerPlugin::new(registered)
         .with_capacity_limits(config.server.max_players, config.server.max_rooms)
+        .with_assignment_timeout(Duration::from_secs(config.demo.assignment_timeout_secs))
         .with_nats_bridge(NatsBridgeConfig {
             nats: config.nats.clone(),
             assignment_poll_interval: Duration::from_millis(config.demo.assignment_poll_ms),
@@ -162,6 +163,8 @@ struct DemoConfig {
     pub tick_hz: f64,
     #[serde(default = "default_assignment_poll_ms")]
     pub assignment_poll_ms: u64,
+    #[serde(default = "default_assignment_timeout_secs")]
+    pub assignment_timeout_secs: u64,
     #[serde(default = "default_capacity_publish_ticks")]
     pub capacity_publish_ticks: u64,
     #[serde(default = "default_auto_connect_assigned_clients")]
@@ -173,6 +176,7 @@ impl Default for DemoConfig {
         Self {
             tick_hz: default_tick_hz(),
             assignment_poll_ms: default_assignment_poll_ms(),
+            assignment_timeout_secs: default_assignment_timeout_secs(),
             capacity_publish_ticks: default_capacity_publish_ticks(),
             auto_connect_assigned_clients: default_auto_connect_assigned_clients(),
         }
@@ -282,6 +286,10 @@ fn default_tick_hz() -> f64 {
 
 fn default_assignment_poll_ms() -> u64 {
     250
+}
+
+fn default_assignment_timeout_secs() -> u64 {
+    60
 }
 
 fn default_capacity_publish_ticks() -> u64 {

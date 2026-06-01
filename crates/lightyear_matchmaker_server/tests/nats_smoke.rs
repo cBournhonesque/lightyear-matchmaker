@@ -7,8 +7,9 @@
 use futures_util::{SinkExt as _, StreamExt as _};
 use lightyear_matchmaker_bevy_client::{RequestPlay, request_play_once};
 use lightyear_matchmaker_core::{
-    ActiveConnection, AssignmentRecord, ClientMessage, ConnectionGrant, GameServerReport,
-    LightyearClientId, Lobby, RoomSelection, ServerEndpoint, ServerId, ServerMessage,
+    ActiveConnection, AssignmentId, AssignmentRecord, ClientMessage, ConnectionGrant,
+    GameServerReport, LightyearClientId, Lobby, PlayerId, RoomSelection, ServerEndpoint, ServerId,
+    ServerMessage,
 };
 use lightyear_matchmaker_lightyear::NetcodeTokenConfig;
 use lightyear_matchmaker_nats::{NatsConfig, NatsCoordinator};
@@ -79,61 +80,70 @@ async fn websocket_request_play_publishes_assignment_to_nats() {
         (saw_preparing, saw_ready),
         (Some(preparing), Some(ready)) if preparing < ready
     ));
+    let assignment_id = assignment_preparing_id(&client_result.messages);
     let assignment_ready = client_result.grant;
 
     let coordinator = NatsCoordinator::connect(nats).await.unwrap();
-    let assignment = assignment_for_server_client(
-        &coordinator,
-        &ServerId::new("local-dev"),
-        assignment_ready.client_id,
-    )
-    .await;
-    let client_indexed_assignment =
-        assignment_for_client(&coordinator, assignment_ready.client_id).await;
-    assert_eq!(
-        client_indexed_assignment.assignment_id,
-        assignment.assignment_id
-    );
-
-    assert_eq!(assignment.server_id, ServerId::new("local-dev"));
-    assert_eq!(assignment.client_id, assignment_ready.client_id);
-    assert_eq!(assignment.player_id.0, "ip:127.0.0.1");
-    assert!(!assignment.request_id.0.is_empty());
-    assert_ne!(assignment.assignment_id.0, assignment.allocation_id.0);
-    assert_eq!(assignment.team.as_deref(), Some("solo"));
-    assert_eq!(assignment.roster.len(), 1);
-    assert_eq!(
-        assignment.roster[0].client_id,
-        Some(assignment_ready.client_id)
-    );
-    assert_eq!(assignment.roster[0].team.as_deref(), Some("solo"));
-    assert_eq!(
-        assignment.match_metadata.get("game").map(String::as_str),
-        Some("demo")
-    );
-    assert_eq!(
-        assignment.match_metadata.get("version").map(String::as_str),
-        Some("dev")
-    );
-    if matches!(allocation_source(), AllocationSource::EdgegapMock) {
-        assert_eq!(
-            assignment
-                .metadata
-                .get("edgegap.deployment_id")
-                .map(String::as_str),
-            Some("deployment-local-dev")
-        );
-    }
 
     if require_assignment_prepare() {
         let prepared = coordinator
-            .assignment_prepared(&assignment.assignment_id)
+            .assignment_prepared(&assignment_id)
             .await
             .unwrap()
             .expect("assignment prepared acknowledgement should be present");
         assert!(prepared.prepared);
         assert_eq!(prepared.server_id, ServerId::new("local-dev"));
         assert_eq!(prepared.client_id, assignment_ready.client_id);
+        wait_assignment_absent_for_client(&coordinator, assignment_ready.client_id).await;
+        wait_assignment_absent_for_server_client(
+            &coordinator,
+            &ServerId::new("local-dev"),
+            assignment_ready.client_id,
+        )
+        .await;
+    } else {
+        let assignment = assignment_for_server_client(
+            &coordinator,
+            &ServerId::new("local-dev"),
+            assignment_ready.client_id,
+        )
+        .await;
+        let client_indexed_assignment =
+            assignment_for_client(&coordinator, assignment_ready.client_id).await;
+        assert_eq!(
+            client_indexed_assignment.assignment_id,
+            assignment.assignment_id
+        );
+
+        assert_eq!(assignment.server_id, ServerId::new("local-dev"));
+        assert_eq!(assignment.client_id, assignment_ready.client_id);
+        assert_eq!(assignment.player_id.0, "ip:127.0.0.1");
+        assert!(!assignment.request_id.0.is_empty());
+        assert_ne!(assignment.assignment_id.0, assignment.allocation_id.0);
+        assert_eq!(assignment.team.as_deref(), Some("solo"));
+        assert_eq!(assignment.roster.len(), 1);
+        assert_eq!(
+            assignment.roster[0].client_id,
+            Some(assignment_ready.client_id)
+        );
+        assert_eq!(assignment.roster[0].team.as_deref(), Some("solo"));
+        assert_eq!(
+            assignment.match_metadata.get("game").map(String::as_str),
+            Some("demo")
+        );
+        assert_eq!(
+            assignment.match_metadata.get("version").map(String::as_str),
+            Some("dev")
+        );
+        if matches!(allocation_source(), AllocationSource::EdgegapMock) {
+            assert_eq!(
+                assignment
+                    .metadata
+                    .get("edgegap.deployment_id")
+                    .map(String::as_str),
+                Some("deployment-local-dev")
+            );
+        }
     }
 
     if std::env::var("LIGHTYEAR_MATCHMAKER_NATS_SMOKE_EXPECT_ACTIVE").as_deref() == Ok("true") {
@@ -161,7 +171,7 @@ async fn websocket_request_play_publishes_assignment_to_nats() {
         .publish_report(&GameServerReport::ActiveConnection(ActiveConnection {
             server_id: ServerId::new("local-dev"),
             client_id: assignment_ready.client_id,
-            player_id: assignment.player_id.clone(),
+            player_id: PlayerId::new("ip:127.0.0.1"),
             connected: false,
         }))
         .await
@@ -234,13 +244,50 @@ async fn websocket_lobby_ready_assigns_roster_to_two_clients() {
     let _ = recv_lobby_update(&mut owner).await;
     send_client_message(&mut joiner, ClientMessage::LobbySetReady { ready: true }).await;
 
-    let (owner_grant, joiner_grant) = tokio::join!(
+    let (owner_assignment_ready, joiner_assignment_ready) = tokio::join!(
         recv_assignment_ready(&mut owner),
         recv_assignment_ready(&mut joiner)
     );
+    let owner_grant = owner_assignment_ready.grant;
+    let joiner_grant = joiner_assignment_ready.grant;
     assert_ne!(owner_grant.client_id, joiner_grant.client_id);
 
     let coordinator = NatsCoordinator::connect(nats).await.unwrap();
+    if require_assignment_prepare() {
+        let owner_prepared = coordinator
+            .assignment_prepared(&owner_assignment_ready.assignment_id)
+            .await
+            .unwrap()
+            .expect("owner assignment prepared acknowledgement should be present");
+        let joiner_prepared = coordinator
+            .assignment_prepared(&joiner_assignment_ready.assignment_id)
+            .await
+            .unwrap()
+            .expect("joiner assignment prepared acknowledgement should be present");
+        assert!(owner_prepared.prepared);
+        assert!(joiner_prepared.prepared);
+        assert_eq!(owner_prepared.server_id, ServerId::new("local-dev"));
+        assert_eq!(joiner_prepared.server_id, ServerId::new("local-dev"));
+        assert_eq!(owner_prepared.client_id, owner_grant.client_id);
+        assert_eq!(joiner_prepared.client_id, joiner_grant.client_id);
+        wait_assignment_absent_for_client(&coordinator, owner_grant.client_id).await;
+        wait_assignment_absent_for_client(&coordinator, joiner_grant.client_id).await;
+        wait_assignment_absent_for_server_client(
+            &coordinator,
+            &ServerId::new("local-dev"),
+            owner_grant.client_id,
+        )
+        .await;
+        wait_assignment_absent_for_server_client(
+            &coordinator,
+            &ServerId::new("local-dev"),
+            joiner_grant.client_id,
+        )
+        .await;
+        server.abort();
+        return;
+    }
+
     let lobby_assignments = assignments_for_server(&coordinator, &ServerId::new("local-dev"))
         .await
         .into_iter()
@@ -335,17 +382,28 @@ async fn recv_lobby_update(socket: &mut TestSocket) -> Lobby {
     .unwrap()
 }
 
-async fn recv_assignment_ready(socket: &mut TestSocket) -> ConnectionGrant {
+struct ReceivedAssignmentReady {
+    assignment_id: AssignmentId,
+    grant: ConnectionGrant,
+}
+
+async fn recv_assignment_ready(socket: &mut TestSocket) -> ReceivedAssignmentReady {
     tokio::time::timeout(Duration::from_secs(5), async {
-        let mut saw_preparing = false;
+        let mut assignment_id = None;
         loop {
             match recv_server_message(socket).await {
-                ServerMessage::AssignmentPreparing { .. } => {
-                    saw_preparing = true;
+                ServerMessage::AssignmentPreparing {
+                    assignment_id: preparing_id,
+                } => {
+                    assignment_id = Some(AssignmentId::new(preparing_id));
                 }
                 ServerMessage::AssignmentReady { connect } => {
-                    assert!(saw_preparing);
-                    return connect;
+                    return ReceivedAssignmentReady {
+                        assignment_id: assignment_id
+                            .take()
+                            .expect("assignment preparing should arrive before ready"),
+                        grant: connect,
+                    };
                 }
                 _ => {}
             }
@@ -353,6 +411,18 @@ async fn recv_assignment_ready(socket: &mut TestSocket) -> ConnectionGrant {
     })
     .await
     .unwrap()
+}
+
+fn assignment_preparing_id(messages: &[ServerMessage]) -> AssignmentId {
+    messages
+        .iter()
+        .find_map(|message| match message {
+            ServerMessage::AssignmentPreparing { assignment_id } => {
+                Some(AssignmentId::new(assignment_id.clone()))
+            }
+            _ => None,
+        })
+        .expect("assignment preparing message should be present")
 }
 
 async fn recv_server_message(socket: &mut TestSocket) -> ServerMessage {

@@ -1,9 +1,14 @@
 //! Edgegap provider bridge.
 //!
+//! A provider is the matchmaker's capacity backend. The Edgegap provider maps a
+//! matchmaker allocation request to an Edgegap session/deployment and returns
+//! the endpoint/server identity that should receive assignments.
+//!
 //! This crate contains both a real Edgegap session provider and a mock/static
 //! Edgegap-shaped provider used by local tests. The real provider follows the
 //! Bevygap flow: create a session, poll it until it links to a ready deployment,
-//! extract the deployment endpoint, and release by deleting the Edgegap session.
+//! extract the deployment endpoint, preserve Edgegap ids in allocation metadata,
+//! and release by deleting the Edgegap session.
 
 #![allow(async_fn_in_trait)]
 
@@ -326,6 +331,10 @@ impl EdgegapProvider {
                 session.session_id
             ))
         })?;
+        let server_id = ServerId::new(deployment.request_id.clone());
+        if request.avoids_server(&server_id) {
+            return Err(MatchmakerError::NoCapacity);
+        }
         let port = select_edgegap_port(deployment, self.config.port_name.as_deref())?;
         let public_ip = deployment.public_ip.parse::<IpAddr>().map_err(|error| {
             MatchmakerError::Provider(format!(
@@ -367,7 +376,7 @@ impl EdgegapProvider {
 
         Ok(ServerAllocation {
             allocation_id: AllocationId::new(edgegap_session_allocation_id(&session.session_id)),
-            server_id: ServerId::new(deployment.request_id.clone()),
+            server_id,
             provider: ProviderKind::Edgegap,
             endpoint,
             game: request.game.clone(),
@@ -659,6 +668,10 @@ fn accepts_request(deployment: &EdgegapDeploymentConfig, request: &AllocationReq
         && deployment.game == request.game
         && deployment.version == request.version
         && deployment.current_sessions < deployment.max_sessions.max(1)
+        && !request
+            .avoid_server_ids
+            .iter()
+            .any(|server_id| server_id.0 == deployment.server_id)
 }
 
 fn latency_rank(deployment: &EdgegapDeploymentConfig, request: &AllocationRequest) -> u32 {
@@ -769,6 +782,7 @@ mod tests {
                     rtt_ms: 12,
                     transport: LatencyTransport::Http,
                 }],
+                avoid_server_ids: Vec::new(),
             })
             .await
             .unwrap();
@@ -836,6 +850,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn real_provider_releases_session_when_ready_deployment_is_avoided() {
+        let server = MockHttpServer::new(vec![
+            (
+                200,
+                serde_json::json!({ "session_id": "session-avoided" }).to_string(),
+            ),
+            (200, ready_session_json()),
+            (200, serde_json::json!({ "deleted": true }).to_string()),
+        ]);
+        let provider = EdgegapProvider::new(EdgegapProviderConfig {
+            api_key: Some("test-key".to_string()),
+            base_url: server.base_url(),
+            session_poll_ms: 1,
+            port_name: Some("game".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = provider
+            .allocate(AllocationRequest {
+                request_id: RequestId::new("request-avoided"),
+                game: "demo".to_string(),
+                version: "dev".to_string(),
+                player_id: PlayerId::new("ip:127.0.0.1"),
+                lobby_id: None,
+                room: RoomSelection::Auto,
+                latencies: Vec::new(),
+                avoid_server_ids: vec![ServerId::new("deployment-1")],
+            })
+            .await;
+
+        assert!(matches!(result, Err(MatchmakerError::NoCapacity)));
+        let requests = server.finish();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0].starts_with("POST /v1/session "));
+        assert!(requests[1].starts_with("GET /v1/session/session-avoided "));
+        assert!(requests[2].starts_with("DELETE /v1/session/session-avoided "));
+    }
+
+    #[tokio::test]
     async fn mock_provider_allocates_edgegap_metadata() {
         let allocation = provider()
             .allocate(AllocationRequest {
@@ -846,6 +900,7 @@ mod tests {
                 lobby_id: None,
                 room: RoomSelection::Auto,
                 latencies: Vec::new(),
+                avoid_server_ids: Vec::new(),
             })
             .await
             .unwrap();
@@ -883,6 +938,37 @@ mod tests {
                         transport: LatencyTransport::Http,
                     },
                 ],
+                avoid_server_ids: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(allocation.server_id, ServerId::new("remote-dev"));
+    }
+
+    #[tokio::test]
+    async fn mock_provider_skips_avoided_servers() {
+        let allocation = provider()
+            .allocate(AllocationRequest {
+                request_id: RequestId::new("request-3"),
+                game: "demo".to_string(),
+                version: "dev".to_string(),
+                player_id: PlayerId::new("ip:127.0.0.1"),
+                lobby_id: None,
+                room: RoomSelection::Auto,
+                latencies: vec![
+                    LatencyReport {
+                        region: "local".to_string(),
+                        rtt_ms: 10,
+                        transport: LatencyTransport::Http,
+                    },
+                    LatencyReport {
+                        region: "remote".to_string(),
+                        rtt_ms: 100,
+                        transport: LatencyTransport::Http,
+                    },
+                ],
+                avoid_server_ids: vec![ServerId::new("local-dev")],
             })
             .await
             .unwrap();

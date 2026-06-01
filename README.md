@@ -3,8 +3,26 @@
 Planning repo for a Lightyear-oriented matchmaking, lobby, identity, and dedicated
 server assignment layer.
 
-The initial architecture draft lives in
-[docs/architecture-plan.md](docs/architecture-plan.md).
+Useful docs:
+
+- [docs/architecture-plan.md](docs/architecture-plan.md): target architecture
+  and design rationale.
+- [docs/runtime-model.md](docs/runtime-model.md): current assignment, NATS,
+  lifecycle, retry, room-selection, and operations model.
+- [docs/state-machines.md](docs/state-machines.md): formal lifecycle states for
+  lobbies, tickets, matches, allocations, reservations, assignments,
+  connections, and cleanup work.
+- [docs/open-match2-integration.md](docs/open-match2-integration.md): proposed
+  optional Open Match 2 ticket-matching integration.
+- [docs/protocol.md](docs/protocol.md): current `/ws` JSON message reference.
+- [docs/bevy-client.md](docs/bevy-client.md): Bevy client plugin messages,
+  state, reconnect behavior, and examples.
+- [docs/asyncapi.yaml](docs/asyncapi.yaml): machine-readable websocket API
+  contract for docs/client generation.
+- [docs/openapi.yaml](docs/openapi.yaml): machine-readable HTTP operations
+  contract.
+- [docs/implementation_status.md](docs/implementation_status.md): what is
+  implemented, what is incomplete, and what to review next.
 
 ## Phase 1 Slice
 
@@ -31,7 +49,13 @@ Run locally with:
 cargo run -p lightyear_matchmaker_server -- --config examples/bevy_local_static/config/matchmaker.local.toml
 ```
 
-The WebSocket endpoint is `/ws`, and the health endpoint is `/health`.
+The WebSocket endpoint is `/ws`. Operational endpoints are `/health`,
+`/ready`, `/metrics`, `/admin/drain`, and
+`/admin/servers/{server_id}/drain`; `/ready` checks drain state plus NATS
+coordination when configured, while `/metrics` returns JSON runtime counters for
+assignment, websocket, lobby, and lifecycle-worker activity. The server also
+serves `/openapi.yaml` for HTTP endpoints and `/asyncapi.yaml` for the websocket
+message contract.
 
 To exercise the NATS path locally, start NATS with JetStream enabled and use:
 
@@ -55,7 +79,10 @@ honor client `LatencyReport` region hints.
 Those NATS configs also require assignment preparation. The matchmaker writes
 the assignment to NATS, sends `AssignmentPreparing`, waits for the headless Bevy
 server to publish an `AssignmentPrepared` acknowledgement, and only then sends
-`AssignmentReady` with the Lightyear connect token.
+`AssignmentReady` with the Lightyear connect token. Prepared assignments are
+consumed from the NATS assignment queue; if the client never connects, the
+assignment timeout defaults to 60 seconds and is configurable in the matchmaker
+and Bevy example configs.
 
 The compose examples live under `examples/bevy_local_static/docker-compose/`
 and `examples/bevy_local_static/podman/`. They run NATS plus the matchmaker
@@ -98,3 +125,9 @@ For real Edgegap session creation, start from
 `EDGEGAP_API_KEY`, and run the server with `allocation.source = "edgegap"`.
 That path uses Edgegap's session API and is covered by local HTTP tests, but it
 is not yet covered by a live Edgegap smoke test.
+
+A live Edgegap smoke should be treated as a credential-gated deployment test,
+not the normal development loop. Lightrider is a good host for that only when we
+want to validate the full deployed game path against real Edgegap sessions. Most
+matchmaker work should be validated with local NATS static, mock Edgegap, and
+unit tests first.

@@ -1,6 +1,18 @@
 //! Game-server registration, assignment, readiness, and connection-report types.
 //!
-//! These types describe the provider-independent contract between the
+//! A game server is the running authoritative game process selected by the
+//! matchmaker. It is responsible for publishing readiness and capacity, polling
+//! assignments addressed to its `ServerId`, preparing local admission state,
+//! validating connecting Lightyear client ids, and reporting active connection
+//! changes.
+//!
+//! The matchmaker creates assignments after a provider returns capacity. An
+//! assignment is a request for one game server to accept one Lightyear client id
+//! for a player/lobby/team context. When the game server publishes
+//! `AssignmentPrepared`, the pending assignment can be consumed from the
+//! server's queue and runtime truth moves to active-connection reports.
+//!
+//! These types describe that provider-independent contract between the
 //! matchmaker and a running game server.
 
 use crate::{
@@ -129,6 +141,35 @@ impl ServerReadiness {
             ready,
             cert_digest: None,
             metadata: server.metadata.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Operator/matchmaker intent to drain one game server.
+///
+/// A drain marker is not a capacity report. It means the matchmaker should stop
+/// placing new assignments on this server and should cancel pending assignments
+/// that have not become active game connections yet. Connected players may keep
+/// playing until the game or operator decides to remove them.
+pub struct ServerDrain {
+    /// Server id that should stop receiving new assignments.
+    pub server_id: ServerId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Human-readable reason for the drain.
+    pub reason: Option<String>,
+    #[serde(default)]
+    /// Additional operator or orchestration metadata.
+    pub metadata: BTreeMap<String, String>,
+}
+
+impl ServerDrain {
+    /// Creates a drain marker for a server.
+    pub fn new(server_id: ServerId, reason: Option<String>) -> Self {
+        Self {
+            server_id,
+            reason,
+            metadata: BTreeMap::new(),
         }
     }
 }
