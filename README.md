@@ -10,12 +10,11 @@ Useful docs:
 - [docs/runtime-model.md](docs/runtime-model.md): current assignment, NATS,
   lifecycle, retry, room-selection, and operations model.
 - [docs/state-machines.md](docs/state-machines.md): formal lifecycle states for
-  lobbies, tickets, matches, allocations, reservations, assignments,
-  connections, and cleanup work.
+  lobbies, allocations, assignments, and cleanup work.
 - [docs/open-match2-integration.md](docs/open-match2-integration.md): proposed
   optional Open Match 2 ticket-matching integration.
 - [docs/protocol.md](docs/protocol.md): current `/ws` JSON message reference.
-- [docs/bevy-client.md](docs/bevy-client.md): Bevy client plugin messages,
+- `lightyear_matchmaker_bevy_client` crate docs: Bevy client plugin messages,
   state, reconnect behavior, and examples.
 - [docs/asyncapi.yaml](docs/asyncapi.yaml): machine-readable websocket API
   contract for docs/client generation.

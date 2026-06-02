@@ -93,8 +93,8 @@ behavior, and room selection.
 - Initial module split for readability: server config, lobby runtime,
   metrics/status DTOs, NATS config, NATS names, and NATS lifecycle work
   payloads now live outside the largest orchestration files.
-- Formal core lifecycle state enums for lobbies, tickets, matches, allocations,
-  future reservations, assignments, connections, and lifecycle work.
+- Formal core lifecycle state enums for lobbies, allocations, assignments, and
+  lifecycle work.
 - Assignment and lifecycle cleanup state labels are now used in runtime
   transition logs and JSON metrics snapshots.
 - State-machine and Open Match 2 integration docs:

@@ -45,10 +45,9 @@
 //! can keep reporting capacity, but providers and coordinators should stop
 //! placing new assignments there and cancel pending assignment work.
 //!
-//! The crate also exposes formal lifecycle enums such as `TicketState`,
-//! `MatchState`, `AllocationState`, `ReservationState`, and `AssignmentState`.
-//! These make the state machines explicit for docs, metrics, debug endpoints,
-//! and future ticket-matching integrations.
+//! The crate also exposes formal lifecycle enums such as `LobbyState`,
+//! `AllocationState`, `AssignmentState`, and `LifecycleWorkState`. These make
+//! the current state machines explicit for docs, metrics, and debug endpoints.
 //!
 //! This crate intentionally avoids Axum, NATS, Bevy, Edgegap, and concrete
 //! Lightyear transport dependencies. It defines the portable IDs, protocol
