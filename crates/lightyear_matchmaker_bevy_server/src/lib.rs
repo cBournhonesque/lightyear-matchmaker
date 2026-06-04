@@ -10,6 +10,10 @@
 //! Lightyear connection grants. The game server still performs the final
 //! validation step by checking the connecting Lightyear client id against its
 //! prepared assignments.
+//!
+//! With the optional `agones` feature, the plugin can also call the local
+//! Agones SDK HTTP API used by providers such as Gameflow: `Ready()` once the
+//! server starts, periodic `Health()`, and explicit `Shutdown()`.
 
 use bevy_app::{App, Plugin, Update};
 #[cfg(feature = "lightyear-netcode")]
@@ -48,6 +52,8 @@ pub struct LightyearMatchmakerServerPlugin {
     max_rooms: u32,
     assignment_timeout: Duration,
     nats_bridge: Option<NatsBridgeConfig>,
+    #[cfg(feature = "agones")]
+    agones_sdk: Option<AgonesSdkConfig>,
     #[cfg(feature = "lightyear-netcode")]
     lightyear_netcode: Option<LightyearNetcodeIntegrationConfig>,
 }
@@ -61,6 +67,8 @@ impl LightyearMatchmakerServerPlugin {
             max_rooms: 1,
             assignment_timeout: Duration::from_secs(60),
             nats_bridge: None,
+            #[cfg(feature = "agones")]
+            agones_sdk: None,
             #[cfg(feature = "lightyear-netcode")]
             lightyear_netcode: None,
         }
@@ -86,6 +94,19 @@ impl LightyearMatchmakerServerPlugin {
     /// Enables the NATS bridge used to publish reports and poll assignments.
     pub fn with_nats_bridge(mut self, config: NatsBridgeConfig) -> Self {
         self.nats_bridge = Some(config);
+        self
+    }
+
+    /// Enables calls to the local Agones SDK HTTP API.
+    #[cfg(feature = "agones")]
+    pub fn with_agones_sdk(self) -> Self {
+        self.with_agones_sdk_config(AgonesSdkConfig::default())
+    }
+
+    /// Enables calls to the local Agones SDK HTTP API.
+    #[cfg(feature = "agones")]
+    pub fn with_agones_sdk_config(mut self, config: AgonesSdkConfig) -> Self {
+        self.agones_sdk = Some(config);
         self
     }
 
@@ -143,6 +164,12 @@ impl Plugin for LightyearMatchmakerServerPlugin {
             .add_systems(Update, sync_nats_bridge);
         }
 
+        #[cfg(feature = "agones")]
+        if let Some(config) = &self.agones_sdk {
+            app.insert_resource(spawn_agones_sdk(config.clone()))
+                .add_systems(Update, sync_agones_sdk);
+        }
+
         #[cfg(feature = "lightyear-netcode")]
         if let Some(config) = self.lightyear_netcode {
             app.insert_resource(config)
@@ -155,6 +182,35 @@ impl Plugin for LightyearMatchmakerServerPlugin {
                         handle_lightyear_netcode_client_disconnected,
                     ),
                 );
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+/// Configuration for the optional Agones SDK HTTP integration.
+#[cfg(feature = "agones")]
+pub struct AgonesSdkConfig {
+    /// Optional explicit Agones SDK HTTP base URL.
+    ///
+    /// When absent, the plugin reads `http_port_env` and builds
+    /// `http://127.0.0.1:{port}`.
+    pub base_url: Option<String>,
+    /// Environment variable that contains the local Agones SDK HTTP port.
+    pub http_port_env: String,
+    /// Whether the background worker should call `/ready` immediately.
+    pub ready_on_start: bool,
+    /// Interval between `/health` calls. `Duration::ZERO` disables health.
+    pub health_interval: Duration,
+}
+
+#[cfg(feature = "agones")]
+impl Default for AgonesSdkConfig {
+    fn default() -> Self {
+        Self {
+            base_url: None,
+            http_port_env: "AGONES_SDK_HTTP_PORT".to_string(),
+            ready_on_start: true,
+            health_interval: Duration::from_secs(2),
         }
     }
 }
@@ -207,6 +263,45 @@ pub struct NatsBridgeResource {
     reports: tokio_mpsc::UnboundedSender<GameServerReport>,
     assignments: Mutex<std_mpsc::Receiver<AssignmentRecord>>,
     errors: Mutex<std_mpsc::Receiver<String>>,
+}
+
+#[derive(Resource)]
+/// Background Agones SDK HTTP integration.
+#[cfg(feature = "agones")]
+pub struct AgonesSdkResource {
+    commands: tokio_mpsc::UnboundedSender<AgonesCommand>,
+    errors: Mutex<std_mpsc::Receiver<String>>,
+}
+
+#[cfg(feature = "agones")]
+impl AgonesSdkResource {
+    /// Queues a `/ready` call.
+    pub fn ready(&self) -> bool {
+        self.commands.send(AgonesCommand::Ready).is_ok()
+    }
+
+    /// Queues a `/health` call.
+    pub fn health(&self) -> bool {
+        self.commands.send(AgonesCommand::Health).is_ok()
+    }
+
+    /// Queues a `/shutdown` call and asks the background worker to stop.
+    pub fn shutdown(&self) -> bool {
+        self.commands.send(AgonesCommand::Shutdown).is_ok()
+    }
+
+    /// Drains Agones SDK errors emitted by the background worker.
+    pub fn drain_errors(&self) -> Vec<String> {
+        drain_receiver(&self.errors)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[cfg(feature = "agones")]
+enum AgonesCommand {
+    Ready,
+    Health,
+    Shutdown,
 }
 
 impl NatsBridgeResource {
@@ -339,6 +434,131 @@ pub fn spawn_nats_bridge(config: NatsBridgeConfig, server_id: ServerId) -> NatsB
         assignments: Mutex::new(assignments_rx),
         errors: Mutex::new(errors_rx),
     }
+}
+
+/// Spawns the background worker used by the optional Agones SDK integration.
+#[cfg(feature = "agones")]
+pub fn spawn_agones_sdk(config: AgonesSdkConfig) -> AgonesSdkResource {
+    let (commands_tx, commands_rx) = tokio_mpsc::unbounded_channel();
+    let (errors_tx, errors_rx) = std_mpsc::channel();
+
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                let _ = errors_tx.send(format!("failed to start Agones SDK runtime: {error}"));
+                return;
+            }
+        };
+        runtime.block_on(run_agones_sdk_loop(config, commands_rx, errors_tx));
+    });
+
+    AgonesSdkResource {
+        commands: commands_tx,
+        errors: Mutex::new(errors_rx),
+    }
+}
+
+#[cfg(feature = "agones")]
+async fn run_agones_sdk_loop(
+    config: AgonesSdkConfig,
+    mut commands: tokio_mpsc::UnboundedReceiver<AgonesCommand>,
+    errors: std_mpsc::Sender<String>,
+) {
+    let Some(base_url) = agones_base_url(&config) else {
+        let _ = errors.send(format!(
+            "failed to configure Agones SDK: set {} or AgonesSdkConfig::base_url",
+            config.http_port_env
+        ));
+        return;
+    };
+    let client = reqwest::Client::new();
+    if config.ready_on_start
+        && let Err(error) = call_agones(&client, &base_url, "ready").await
+    {
+        let _ = errors.send(error);
+    }
+
+    let mut health = (!config.health_interval.is_zero()).then(|| {
+        let mut interval = tokio::time::interval(config.health_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        interval
+    });
+
+    loop {
+        if let Some(health) = health.as_mut() {
+            tokio::select! {
+                command = commands.recv() => {
+                    if !handle_agones_command(&client, &base_url, command, &errors).await {
+                        return;
+                    }
+                }
+                _ = health.tick() => {
+                    if let Err(error) = call_agones(&client, &base_url, "health").await {
+                        let _ = errors.send(error);
+                    }
+                }
+            }
+        } else if !handle_agones_command(&client, &base_url, commands.recv().await, &errors).await {
+            return;
+        }
+    }
+}
+
+#[cfg(feature = "agones")]
+async fn handle_agones_command(
+    client: &reqwest::Client,
+    base_url: &str,
+    command: Option<AgonesCommand>,
+    errors: &std_mpsc::Sender<String>,
+) -> bool {
+    let Some(command) = command else {
+        return false;
+    };
+    let endpoint = match command {
+        AgonesCommand::Ready => "ready",
+        AgonesCommand::Health => "health",
+        AgonesCommand::Shutdown => "shutdown",
+    };
+    if let Err(error) = call_agones(client, base_url, endpoint).await {
+        let _ = errors.send(error);
+    }
+    !matches!(command, AgonesCommand::Shutdown)
+}
+
+#[cfg(feature = "agones")]
+async fn call_agones(
+    client: &reqwest::Client,
+    base_url: &str,
+    endpoint: &str,
+) -> Result<(), String> {
+    let response = client
+        .post(format!("{}/{endpoint}", base_url.trim_end_matches('/')))
+        .send()
+        .await
+        .map_err(|error| format!("Agones SDK /{endpoint} transport error: {error}"))?;
+    let status = response.status();
+    if status.is_success() {
+        Ok(())
+    } else {
+        let body = response.text().await.unwrap_or_default();
+        Err(format!(
+            "Agones SDK /{endpoint} failed with status {status}: {body}"
+        ))
+    }
+}
+
+#[cfg(feature = "agones")]
+fn agones_base_url(config: &AgonesSdkConfig) -> Option<String> {
+    config.base_url.clone().or_else(|| {
+        std::env::var(&config.http_port_env)
+            .ok()
+            .filter(|port| !port.trim().is_empty())
+            .map(|port| format!("http://127.0.0.1:{}", port.trim()))
+    })
 }
 
 async fn run_nats_bridge_loop(
@@ -903,6 +1123,13 @@ fn sync_nats_bridge(mut state: ResMut<MatchmakerServerState>, bridge: Res<NatsBr
     }
 
     for error in bridge.drain_errors() {
+        warn!("{error}");
+    }
+}
+
+#[cfg(feature = "agones")]
+fn sync_agones_sdk(agones: Res<AgonesSdkResource>) {
+    for error in agones.drain_errors() {
         warn!("{error}");
     }
 }

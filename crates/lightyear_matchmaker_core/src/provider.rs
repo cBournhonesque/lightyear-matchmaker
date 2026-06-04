@@ -2,8 +2,8 @@
 //!
 //! A provider owns server capacity outside the matchmaker. It can be as simple
 //! as a configured list of already-running static servers, or as dynamic as an
-//! Edgegap bridge that creates a session, waits for deployment readiness, and
-//! later releases provider-side state.
+//! Edgegap/Gameflow bridge that asks an external orchestration service for
+//! reachable capacity.
 //!
 //! Providers map a game/version/player or lobby request onto a reachable server
 //! allocation without leaking provider-specific APIs into the core model. The
@@ -91,6 +91,8 @@ pub enum ProviderKind {
     Static,
     /// Edgegap provider.
     Edgegap,
+    /// Gameflow provider.
+    Gameflow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

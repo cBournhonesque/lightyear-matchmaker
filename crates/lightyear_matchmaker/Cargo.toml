@@ -16,8 +16,13 @@ bevy-server-lightyear-netcode = [
   "bevy-server",
   "lightyear_matchmaker_bevy_server/lightyear-netcode",
 ]
+bevy-server-agones = [
+  "bevy-server",
+  "lightyear_matchmaker_bevy_server/agones",
+]
 nats = ["dep:lightyear_matchmaker_nats"]
 provider-edgegap = ["dep:lightyear_matchmaker_provider_edgegap"]
+provider-gameflow = ["dep:lightyear_matchmaker_provider_gameflow"]
 server = ["dep:lightyear_matchmaker_server"]
 static-provider = ["dep:lightyear_matchmaker_provider_static"]
 lightyear-netcode = ["dep:lightyear_matchmaker_lightyear"]
@@ -29,6 +34,7 @@ lightyear_matchmaker_bevy_server = { workspace = true, optional = true }
 lightyear_matchmaker_lightyear = { workspace = true, optional = true }
 lightyear_matchmaker_nats = { workspace = true, optional = true }
 lightyear_matchmaker_provider_edgegap = { workspace = true, optional = true }
+lightyear_matchmaker_provider_gameflow = { workspace = true, optional = true }
 lightyear_matchmaker_provider_static = { workspace = true, optional = true }
 lightyear_matchmaker_server = { workspace = true, optional = true }
 

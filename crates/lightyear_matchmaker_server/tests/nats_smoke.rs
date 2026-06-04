@@ -14,6 +14,7 @@ use lightyear_matchmaker_core::{
 use lightyear_matchmaker_lightyear::NetcodeTokenConfig;
 use lightyear_matchmaker_nats::{NatsConfig, NatsCoordinator};
 use lightyear_matchmaker_provider_edgegap::{EdgegapDeploymentConfig, EdgegapProviderConfig};
+use lightyear_matchmaker_provider_gameflow::GameflowProviderConfig;
 use lightyear_matchmaker_provider_static::{StaticProviderConfig, StaticServerConfig};
 use lightyear_matchmaker_server::{
     AllocationConfig, AllocationSource, AppState, GameConfig, IdentityConfig, MatchmakerConfig,
@@ -599,6 +600,7 @@ fn config(nats: NatsConfig) -> MatchmakerConfig {
             }],
             ..Default::default()
         },
+        gameflow_provider: GameflowProviderConfig::default(),
     }
 }
 

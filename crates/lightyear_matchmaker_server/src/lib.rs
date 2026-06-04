@@ -37,6 +37,7 @@ use lightyear_matchmaker_nats::{
     ReleaseAllocationWork,
 };
 use lightyear_matchmaker_provider_edgegap::{EdgegapProvider, MockEdgegapProvider};
+use lightyear_matchmaker_provider_gameflow::GameflowProvider;
 use lightyear_matchmaker_provider_static::StaticServerProvider;
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
@@ -227,6 +228,7 @@ enum ProviderRouter {
     NatsStatic(Box<NatsStaticServerProvider>),
     Edgegap(EdgegapProvider),
     EdgegapMock(MockEdgegapProvider),
+    Gameflow(GameflowProvider),
 }
 
 impl ProviderRouter {
@@ -236,6 +238,7 @@ impl ProviderRouter {
             Self::NatsStatic(provider) => provider.allocate(request).await,
             Self::Edgegap(provider) => provider.allocate(request).await,
             Self::EdgegapMock(provider) => provider.allocate(request).await,
+            Self::Gameflow(provider) => provider.allocate(request).await,
         }
     }
 
@@ -245,6 +248,7 @@ impl ProviderRouter {
             Self::NatsStatic(provider) => provider.release(allocation_id).await,
             Self::Edgegap(provider) => provider.release(allocation_id).await,
             Self::EdgegapMock(provider) => provider.release(allocation_id).await,
+            Self::Gameflow(provider) => provider.release(allocation_id).await,
         }
     }
 }
@@ -282,6 +286,9 @@ impl AppState {
             }
             AllocationSource::EdgegapMock => {
                 ProviderRouter::EdgegapMock(MockEdgegapProvider::new(config.edgegap_provider))
+            }
+            AllocationSource::Gameflow => {
+                ProviderRouter::Gameflow(GameflowProvider::new(config.gameflow_provider)?)
             }
         };
         Ok(Self {
@@ -2326,6 +2333,7 @@ mod tests {
     use lightyear_matchmaker_core::{ClientMessage, PlayerId, RoomSelection, ServerEndpoint};
     use lightyear_matchmaker_lightyear::NetcodeTokenConfig;
     use lightyear_matchmaker_provider_edgegap::EdgegapProviderConfig;
+    use lightyear_matchmaker_provider_gameflow::GameflowProviderConfig;
     use lightyear_matchmaker_provider_static::{StaticProviderConfig, StaticServerConfig};
 
     #[test]
@@ -2338,6 +2346,9 @@ mod tests {
             ),
             include_str!(
                 "../../../examples/bevy_local_static/config/matchmaker.edgegap.local.example.toml"
+            ),
+            include_str!(
+                "../../../examples/bevy_local_static/config/matchmaker.gameflow.local.example.toml"
             ),
             include_str!("../../../examples/bevy_local_static/config/matchmaker.compose.toml"),
         ] {
@@ -2400,6 +2411,7 @@ mod tests {
                 }],
             },
             edgegap_provider: EdgegapProviderConfig::default(),
+            gameflow_provider: GameflowProviderConfig::default(),
         })
         .unwrap();
         let responses = state
@@ -2478,6 +2490,7 @@ mod tests {
                 }],
             },
             edgegap_provider: EdgegapProviderConfig::default(),
+            gameflow_provider: GameflowProviderConfig::default(),
         })
         .unwrap();
         let first = request_play_preparing_id(&state).await;
@@ -2547,6 +2560,7 @@ mod tests {
                 ],
             },
             edgegap_provider: EdgegapProviderConfig::default(),
+            gameflow_provider: GameflowProviderConfig::default(),
         })
         .unwrap();
         let player_id = PlayerId::new("ip:127.0.0.1");
@@ -2678,6 +2692,7 @@ mod tests {
             nats: None,
             static_provider: StaticProviderConfig { servers },
             edgegap_provider: EdgegapProviderConfig::default(),
+            gameflow_provider: GameflowProviderConfig::default(),
         }
     }
 

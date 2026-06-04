@@ -17,6 +17,7 @@ lightyear_matchmaker_core.workspace = true
 lightyear_matchmaker_lightyear.workspace = true
 lightyear_matchmaker_nats.workspace = true
 lightyear_matchmaker_provider_edgegap.workspace = true
+lightyear_matchmaker_provider_gameflow.workspace = true
 lightyear_matchmaker_provider_static.workspace = true
 rand.workspace = true
 serde.workspace = true

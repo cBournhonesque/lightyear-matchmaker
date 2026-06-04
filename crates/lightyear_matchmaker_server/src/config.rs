@@ -4,6 +4,7 @@ use anyhow::Context as _;
 use lightyear_matchmaker_lightyear::NetcodeTokenConfig;
 use lightyear_matchmaker_nats::NatsConfig;
 use lightyear_matchmaker_provider_edgegap::EdgegapProviderConfig;
+use lightyear_matchmaker_provider_gameflow::GameflowProviderConfig;
 use lightyear_matchmaker_provider_static::StaticProviderConfig;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -33,6 +34,9 @@ pub struct MatchmakerConfig {
     #[serde(default)]
     /// Edgegap provider settings used by both real and mock Edgegap sources.
     pub edgegap_provider: EdgegapProviderConfig,
+    #[serde(default)]
+    /// Gameflow provider settings.
+    pub gameflow_provider: GameflowProviderConfig,
 }
 
 impl MatchmakerConfig {
@@ -131,6 +135,8 @@ pub enum AllocationSource {
     Edgegap,
     /// Select from the mock Edgegap provider bridge.
     EdgegapMock,
+    /// Allocate through the Gameflow API.
+    Gameflow,
 }
 
 fn default_assignment_prepare_timeout_ms() -> u64 {

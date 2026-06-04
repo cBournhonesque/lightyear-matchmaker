@@ -50,6 +50,12 @@ pub mod provider_edgegap {
     pub use lightyear_matchmaker_provider_edgegap::*;
 }
 
+#[cfg(feature = "provider-gameflow")]
+/// Gameflow provider bridge implementation.
+pub mod provider_gameflow {
+    pub use lightyear_matchmaker_provider_gameflow::*;
+}
+
 #[cfg(feature = "server")]
 /// Deployable Axum matchmaker server.
 pub mod server {

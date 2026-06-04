@@ -10,6 +10,7 @@ description = "Bevy game-server plugin contract for Lightyear Matchmaker"
 
 [features]
 default = []
+agones = ["dep:reqwest"]
 lightyear-netcode = [
   "dep:lightyear_connection",
   "dep:lightyear_core",
@@ -24,6 +25,7 @@ lightyear_core = { workspace = true, optional = true }
 lightyear_matchmaker_core.workspace = true
 lightyear_matchmaker_nats.workspace = true
 lightyear_netcode = { workspace = true, optional = true, features = ["server"] }
+reqwest = { workspace = true, optional = true }
 tokio.workspace = true
 tracing.workspace = true
 
